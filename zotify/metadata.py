@@ -461,7 +461,7 @@ class Tagger:
         self.file_tags[tag] = md_val
     
     def _set_custom(self, tag: str, md_val):
-        if self.path.suffix.lower() == ".mp3":      self._custom_mp3_tag(tag, md_val)
+        if self.path.suffix.lower().lstrip(".") in ID3_EXTS: self._custom_mp3_tag(tag, md_val)
         elif self.path.suffix.lower() == ".m4a":    self._custom_m4a_tag(tag, md_val)
         else:                                       self._custom_ogg_tag(tag, md_val)
     

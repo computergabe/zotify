@@ -53,6 +53,7 @@ CONFIG_VALUES = {
     # Download Options
     OPTIMIZED_DOWNLOADING:      { DEFAULT: 'True',                    TYPE: bool,   ARG: ('--optimized-downloading'                   ,) },
     DOWNLOAD_RATE_LIMITER:      { DEFAULT: '0.0',                     TYPE: float,  ARG: ('-dlr', '--download-rate-limiter'           ,) },
+    DOWNLOAD_REAL_TIME:         { DEFAULT: 'False',                   TYPE: bool,   ARG: ('-rt', '--download-real-time'               ,) },
     BULK_WAIT_TIME:             { DEFAULT: '1.0',                     TYPE: float,  ARG: ('--bulk-wait-time'                          ,) },
     TEMP_DOWNLOAD_DIR:          { DEFAULT: '',                        TYPE: str,    ARG: ('-td', '--temp-download-dir'                ,) },
     
@@ -160,7 +161,6 @@ DEPRECIATED_CONFIGS = {
     "LYRICS_FILENAME":          { DEFAULT: '{artist}_{song_name}',    TYPE: str,    ARG: ('--lyrics-filename'                      ,) },
     "MD_SAVE_LYRICS":           { DEFAULT: 'True',                    TYPE: bool,   ARG: ('--md-save-lyrics'                       ,) },
     "BYPASS_MD_API":            { DEFAULT: 'False',                   TYPE: bool,   ARG: ('--bypass-metadata-api'                  ,) },
-    "DOWNLOAD_REAL_TIME":       { DEFAULT: 'False',                   TYPE: bool,   ARG: ('-rt', '--download-real-time'            ,) },
     "ALBUM_ART_JPG_FILE":       { DEFAULT: 'False',                   TYPE: bool,   ARG: ('--album-art-jpg-file'                      ,) },
 }
 
@@ -340,6 +340,9 @@ class Config:
     
     @classmethod
     def get_dl_rate_limter(cls) -> float:
+        # DOWNLOAD_REAL_TIME is shorthand for a 1.0x (playback speed) limiter
+        if cls.get(DOWNLOAD_REAL_TIME) and not cls.get(DOWNLOAD_RATE_LIMITER):
+            return 1.0
         return cls.get(DOWNLOAD_RATE_LIMITER)
     
     @classmethod

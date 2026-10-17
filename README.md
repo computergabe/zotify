@@ -2,6 +2,10 @@
 
 ## A highly customizable music and podcast downloader
 
+> **Fork of [Googolplexed0/zotify](https://github.com/Googolplexed0/zotify)** with lossless output for DJ software:
+> AIFF / FLAC / ALAC / WAV output, correct ID3 tags and cover art on AIFF and WAV, and a working `-rt` real-time flag.
+> See [DJ Software (rekordbox) Setup](#dj-software-rekordbox-setup).
+
 <p align="center">
   <img src="https://i.imgur.com/hGXQWSl.png" width="50%" alt="Zotify logo">
 </p>
@@ -13,7 +17,7 @@
 - Downloads podcasts, playlists, liked songs, albums, artists, singles.
 - Downloads synced lyrics from the source
 - Option to download in real time to reduce suspicious API request behavior \*\*\*
-- Supports multiple audio formats
+- Supports multiple audio formats, including lossless AIFF, FLAC, ALAC and WAV
 - Download directly from URL or use built-in in search
 - Bulk downloads from a list of URLs in a text file or parsed directly as arguments
 
@@ -32,7 +36,7 @@
 
 *Useable across system from the command line*
 
-`pipx install git+https://github.com/Googolplexed0/zotify.git`
+`pipx install git+https://github.com/computergabe/zotify.git`
 
 </details>
 
@@ -40,7 +44,7 @@
 
 *Useable when launched as a Python module*
 
-`python -m pip install git+https://github.com/Googolplexed0/zotify.git`
+`python -m pip install git+https://github.com/computergabe/zotify.git`
 
 </details>
 
@@ -49,10 +53,10 @@
 *Update in accordance with your install method*
 
 **If Executable (pipx):**
-`pipx install -f git+https://github.com/Googolplexed0/zotify.git`
+`pipx install -f git+https://github.com/computergabe/zotify.git`
 
 **If Module:**
-`python -m pip install --force-reinstall git+https://github.com/Googolplexed0/zotify.git`
+`python -m pip install --force-reinstall git+https://github.com/computergabe/zotify.git`
 
 </details>
 
@@ -127,6 +131,7 @@ Set arguments in the commandline like this: `-ie False` or `--codec mp3`. Wrap c
 |------------------------------|-------------------------------------|------------------------------------------------------------------------------------------|---------------|
 | `OPTIMIZED_DOWNLOADING`      | `--optimized-downloading`           | Whether to sort download order by item duration to reduce API ratelimiting               | True          |
 | `DOWNLOAD_RATE_LIMITER`      | `-dlr`, `--download-rate-limiter`   | Slowdown multiplier based on the item's REAL_TIME_PLAY duration, 0 meaning disabled      | 0.0           |
+| `DOWNLOAD_REAL_TIME`         | `-rt`, `--download-real-time`       | Download at playback speed (same as `DOWNLOAD_RATE_LIMITER` 1.0 when that is 0)           | False         |
 | `BULK_WAIT_TIME`             | `--bulk-wait-time`                  | Wait time between track downloads, in seconds                                            | 1.0           |
 | `TEMP_DOWNLOAD_DIR`          | `-td`, `--temp-download-dir`        | Directory where tracks are temporarily downloaded first, `""` meaning disabled           | `""`          |
 
@@ -146,7 +151,7 @@ Set arguments in the commandline like this: `-ie False` or `--codec mp3`. Wrap c
 
 | Encoding Options             | Command Line Config Flag            | Description                                                                              | Default Value |
 |------------------------------|-------------------------------------|------------------------------------------------------------------------------------------|---------------|
-| `DOWNLOAD_FORMAT`            | `--codec`, `--download-format`      | Audio codec, copy avoids remuxing (aac, fdk_aac, mp3, ogg, opus, vorbis)                 | copy          |
+| `DOWNLOAD_FORMAT`            | `--codec`, `--download-format`      | Audio codec, copy avoids remuxing (aac, fdk_aac, mp3, ogg, opus, vorbis, or lossless aiff, alac, flac, wav) | copy |
 | `DOWNLOAD_QUALITY`           | `-q`, `--download-quality`          | Source audio quality, auto selects highest available (normal, high, very_high\*)         | auto          |
 | `TRANSCODE_BITRATE`          | `-b`, `--bitrate`                   | Overwrite the bitrate for FFMPEG encoding (NOT RECOMMENDED)                              |               |
 | `CUSTOM_FFMEPG_ARGS`         | `--custom-ffmpeg-args`              | Additional FFMPEG functions or filters to apply to downloaded audio (space delimited)    |  `""`         |
@@ -356,6 +361,30 @@ Decrease Volume by 50% for the First 30 Seconds       :   `"-af volume=0.5:enabl
 Slow Audio Tempo to 60% (pitch/frequency unaffected)  :   `"-af atempo=0.6"`
 
 Increase Volume and Tempo by 50%                      :   `"-af volume=1.5,atempo=1.5"`
+
+## DJ Software (rekordbox) Setup
+
+rekordbox, Serato, Traktor and Engine can't play Ogg, so pick an output they can read.
+Spotify's best stream is 320k Ogg Vorbis (Premium), so converting it to a lossless format
+keeps exactly that quality, while MP3/AAC re-encode it a second time.
+
+| `--codec` | File  | Tags                 | Notes                                     |
+|-----------|-------|----------------------|-------------------------------------------|
+| `aiff`    | .aiff | ID3 + cover art      | Best choice for rekordbox, ~10 MB/min     |
+| `flac`    | .flac | Vorbis + cover art   | Smaller, not supported on older CDJs      |
+| `alac`    | .m4a  | MP4 + cover art      | Apple Lossless                            |
+| `wav`     | .wav  | ID3 (limited support)| Tags are ignored by some DJ software      |
+
+Recommended command (also in [`scripts/zotify-rekordbox.bat`](scripts/zotify-rekordbox.bat)):
+
+```
+zotify -rt True -q very_high --codec aiff --md-disc-track-totals False -e True --lyrics-to-file False --bulk-wait-time 5 <playlist URL>
+```
+
+- `-rt True` downloads at playback speed (same as `-dlr 1.0`), so a 1 hour playlist takes about 1 hour.
+- `-e True` writes an `.m3u8` per playlist, which rekordbox can import via File > Import > Import Playlist.
+- Re-tag files you already have (no re-download) with `zotify -v --codec aiff`.
+- Keep the music folder out of OneDrive/Dropbox, as syncing can break rekordbox's file links.
 
 ## Docker Usage
 

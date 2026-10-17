@@ -203,30 +203,46 @@ MACOS_SYSTEM = 'Darwin'
 # FFMPEG
 CODEC_MAP_TRACK = {
     'aac': 'aac',
+    'aiff': 'pcm_s16be',
+    'alac': 'alac',
     'fdk_aac': 'libfdk_aac',
+    'flac': 'flac',
     'mp3': 'libmp3lame',
     'ogg': 'copy',
     'opus': 'libopus',
     'vorbis': 'copy',
+    'wav': 'pcm_s16le',
     'copy': 'copy'
 }
 CODEC_MAP_EPISODE = {
     'aac': 'aac',
+    'aiff': 'pcm_s16be',
+    'alac': 'alac',
     'fdk_aac': 'libfdk_aac',
+    'flac': 'flac',
     'mp3': 'libmp3lame',
     'ogg': 'libvorbis',
     'opus': 'libopus',
     'vorbis': 'libvorbis',
+    'wav': 'pcm_s16le',
     'copy': 'copy'
 }
 EXT_MAP = {
     'aac': 'm4a',
+    'aiff': 'aiff',
+    'alac': 'm4a',
     'fdk_aac': 'm4a',
+    'flac': 'flac',
     'mp3': 'mp3',
     'ogg': 'ogg',
     'opus': 'ogg', # for compatibilty
     'vorbis': 'ogg',
+    'wav': 'wav',
 }
+# lossless codecs ignore bitrate, so none is passed to ffmpeg
+LOSSLESS_CODECS = {'pcm_s16be', 'pcm_s16le', 'flac', 'alac'}
+# extensions tagged with ID3 frames by music_tag
+ID3_EXTS = {'mp3', 'aiff', 'wav'}
 
 # ZMD Keys
 ZMD_ENTRIES = "ZMD_ENTRIES"
@@ -318,6 +334,7 @@ NO_VARIOUS_ARTISTS = 'NO_VARIOUS_ARTISTS'
 DISCOG_BY_ALBUM_ARTIST = 'DISCOG_BY_ALBUM_ARTIST'
 API_CLIENT_ID = 'API_CLIENT_ID'
 DOWNLOAD_RATE_LIMITER = 'DOWNLOAD_RATE_LIMITER'
+DOWNLOAD_REAL_TIME = 'DOWNLOAD_REAL_TIME'
 API_CLIENT_LEGACY = 'API_CLIENT_LEGACY'
 OUTPUT_M3U8 = 'OUTPUT_M3U8'
 IMPORT_ZMD = 'IMPORT_ZMD'

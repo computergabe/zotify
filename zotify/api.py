@@ -437,7 +437,7 @@ class DLContent(Content):
     
     def convert_audio_format(self, temppath: PurePath, path: PurePath) -> str | None:
         output_params = ['-c:a', self._codec]
-        if self._codec != 'copy':
+        if self._codec not in {'copy'} | LOSSLESS_CODECS:
             bitrate = Zotify.CONFIG.get_transcode_bitrate()
             if bitrate in {"auto", ""}:
                 bitrate = Zotify.DOWNLOAD_BITRATE
@@ -706,8 +706,8 @@ class Track(DLContent, HasArtists, HasGenres, IsAddable, IsFavoritable):
     def write_audio_tags(self, filepath: PurePath) -> None:
         from zotify.metadata import Tagger
         tags = Tagger(filepath).write_tags(self)
-        if self._ext == "mp3" and not Zotify.CONFIG.get_disc_track_totals() and self.disc_number and self.track_number:
-            # music_tag python library writes DISCNUMBER and TRACKNUMBER as X/Y instead of X for mp3
+        if self._ext in ID3_EXTS and not Zotify.CONFIG.get_disc_track_totals() and self.disc_number and self.track_number:
+            # music_tag python library writes DISCNUMBER and TRACKNUMBER as X/Y instead of X for ID3 formats (mp3, aiff, wav)
             # this method bypasses all internal formatting, probably not resilient against arbitrary inputs
             tags._write_tag_raw("mp3", "TPOS", str(self.disc_number))
             tags._write_tag_raw("mp3", "TRCK", str(self.track_number))
