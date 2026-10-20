@@ -2,21 +2,30 @@
 
 Zotify's internals are hooked so the GUI gets structured events instead of
 scraped terminal text. Every event is one stdout line: EVENT_PREFIX + JSON.
-Commands come in on stdin, one per line: "pause" (stop after the current
-track) and "resume" (cancel a pending pause).
+Commands come in on stdin, one per line:
+  pause   stop after the current track       resume  cancel a pending pause
+  skip    abandon the current track          stop    stop right away
 """
 import json
 import os
 import re
+import subprocess
 import sys
 import threading
 from time import time
 
 EVENT_PREFIX = "@@ZGUI@@"
 SPINNER = re.compile(r"^\s*\[[^\]]{3}\]\s*")  # Zotify's "[∙●∙] Logging in..." loader frames
+CREATE_NO_WINDOW = 0x08000000
 
 _pause_requested = threading.Event()
+_skip_requested = threading.Event()
+_stop_requested = threading.Event()
 _out_lock = threading.Lock()
+
+
+class SkipTrack(Exception):
+    """Raised inside a track's download to abandon it and move to the next."""
 
 
 def emit(event: str, **data) -> None:
@@ -35,29 +44,70 @@ def _listen_for_commands() -> None:
         elif cmd == "resume":
             _pause_requested.clear()
             emit("pause_disarmed")
+        elif cmd == "skip":
+            _skip_requested.set()
+        elif cmd == "stop":
+            _stop_requested.set()
+            emit("stopping")
+
+
+def _hide_console_windows() -> None:
+    # FFmpeg is a console program: started from a windowed app it opens its own
+    # console window, which steals focus, so start every child process hidden
+    if os.name != "nt":
+        return
+    base = subprocess.Popen
+
+    class HiddenPopen(base):
+        def __init__(self, *args, **kwargs):
+            kwargs["creationflags"] = kwargs.get("creationflags", 0) | CREATE_NO_WINDOW
+            super().__init__(*args, **kwargs)
+
+    subprocess.Popen = HiddenPopen
 
 
 def _install_hooks() -> None:
-    from zotify import api, termoutput
+    from pathlib import Path
+    from zotify import api
     from zotify.termoutput import Printer, Interface
 
-    # --- current track starts / byte progress ------------------------------
+    # --- current track starts / byte progress / skip + stop -----------------
     original_fetch = api.DLContent.fetch_stream_content
 
     def fetch_stream_content(self, stream, temppath, parent_stack):
         album = getattr(self, "album", None)
         image_url = getattr(album, "image_url", None) or getattr(self, "image_url", None)
         artists = getattr(self, "artists", None) or []
+        _skip_requested.clear()
         emit("track_start",
              name=getattr(self, "name", str(self)),
              artist=", ".join(getattr(a, "name", str(a)) for a in artists) if artists else "",
              album=getattr(album, "name", "") if album else "",
              duration_ms=getattr(self, "duration_ms", 0),
              size=getattr(stream, "size", 0),
-             image_url=image_url)
-        return original_fetch(self, stream, temppath, parent_stack)
+             image_url=image_url,
+             temp=str(temppath))
+        try:
+            return original_fetch(self, stream, temppath, parent_stack)
+        except (SkipTrack, KeyboardInterrupt):
+            try:
+                Path(temppath).unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
 
     api.DLContent.fetch_stream_content = fetch_stream_content
+
+    for cls in (api.Track, api.Episode):
+        original_download = cls.download
+
+        def download(self, parent_stack, _original=original_download):
+            try:
+                return _original(self, parent_stack)
+            except SkipTrack:
+                emit("track_skipped", name=getattr(self, "name", str(self)))
+
+        cls.download = download
 
     original_pbar = Printer.pbar
 
@@ -68,6 +118,11 @@ def _install_hooks() -> None:
             state = {"done": 0, "last": 0.0, "start": time()}
 
             def update(n=1):
+                if _stop_requested.is_set():
+                    raise KeyboardInterrupt  # Zotify cleans up and writes m3u8 files
+                if _skip_requested.is_set():
+                    _skip_requested.clear()
+                    raise SkipTrack
                 state["done"] += n
                 now = time()
                 if now - state["last"] > 0.25 or state["done"] >= (total or 0):
@@ -94,17 +149,18 @@ def _install_hooks() -> None:
 
     Interface.dl_complete = staticmethod(dl_complete)
 
-    # --- pause after current track -----------------------------------------
+    # --- pause after current track / stop between tracks --------------------
     original_wait = api.DLContent.wait_between_downloads
 
     def wait_between_downloads(skip_wait: bool = False):
-        if _pause_requested.is_set():
-            emit("pausing")
-            raise KeyboardInterrupt  # Zotify cleans up and writes m3u8 files
-        original_wait(skip_wait)
-        if _pause_requested.is_set():
-            emit("pausing")
-            raise KeyboardInterrupt
+        for _ in range(2):  # check before and after the wait
+            if _stop_requested.is_set():
+                raise KeyboardInterrupt
+            if _pause_requested.is_set():
+                emit("pausing")
+                raise KeyboardInterrupt  # Zotify cleans up and writes m3u8 files
+            if _ == 0:
+                original_wait(skip_wait)
 
     api.DLContent.wait_between_downloads = staticmethod(wait_between_downloads)
 
@@ -166,7 +222,6 @@ def _hook_after_config_load() -> None:
 def _ensure_std_streams() -> None:
     # a windowed (no console) exe can start with sys.std* set to None even when
     # the GUI passed it pipes, so reattach them from the raw file descriptors
-    import os
     for name, fd, mode in (("stdin", 0, "r"), ("stdout", 1, "w"), ("stderr", 2, "w")):
         if getattr(sys, name) is None:
             try:
@@ -180,10 +235,59 @@ def _ensure_std_streams() -> None:
             getattr(sys, name).reconfigure(encoding="utf-8", errors="replace")
 
 
+def _list_playlists_after_login() -> None:
+    """Replace the download step with listing the account's playlists, read from
+    Spotify's internal playlist service (the Web API is rate limited for
+    Zotify's shared client)."""
+    from zotify.config import Zotify
+    from librespot.proto import Playlist4External_pb2 as P4
+    original_boot = Zotify.boot.__func__
+
+    def boot(cls, args):
+        original_boot(cls, args)
+        session = Zotify.SESSION
+        user = session.username()
+        playlists, start, page = [], 0, 200
+        while True:
+            resp = session.api().send(
+                "GET", f"/playlist/v2/user/{user}/rootlist?decorate=revision,attributes,length,owner"
+                       f"&from={start}&length={page}", None, None)
+            if resp.status_code != 200:
+                emit("playlists_error", status=resp.status_code)
+                sys.exit(1)
+            content = P4.SelectedListContent()
+            content.ParseFromString(resp.content)
+            items, metas = content.contents.items, content.contents.meta_items
+            for i, item in enumerate(items):
+                if not item.uri.startswith("spotify:playlist:"):
+                    continue  # folder markers
+                meta = metas[i] if i < len(metas) else None
+                picture = meta.attributes.picture.hex() if meta is not None and meta.attributes.picture else ""
+                playlists.append({
+                    "image": f"https://i.scdn.co/image/{picture}" if picture else None,
+                    "id": item.uri.rsplit(":", 1)[-1],
+                    "name": meta.attributes.name if meta is not None else "",
+                    "count": meta.length if meta is not None else None,
+                    "owner": meta.owner_username if meta is not None else "",
+                })
+            if len(items) < page:
+                break
+            start += page
+        emit("playlists", user=user, items=playlists)
+        sys.exit(0)
+
+    Zotify.boot = classmethod(boot)
+
+
 def run(zotify_args: list[str]) -> int:
     _ensure_std_streams()
+    _hide_console_windows()
+    listing = "--list-playlists" in zotify_args
+    zotify_args = [a for a in zotify_args if a != "--list-playlists"]
     threading.Thread(target=_listen_for_commands, daemon=True).start()
     _hook_after_config_load()
+    if listing:
+        _list_playlists_after_login()
     from zotify.__main__ import main
     sys.argv = ["zotify", *zotify_args]
     emit("started")
@@ -196,5 +300,5 @@ def run(zotify_args: list[str]) -> int:
         code = 1
     else:
         code = 0
-    emit("finished", paused=_pause_requested.is_set(), code=code)
+    emit("finished", paused=_pause_requested.is_set(), stopped=_stop_requested.is_set(), code=code)
     return code

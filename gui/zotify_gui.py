@@ -14,13 +14,18 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import urllib.parse
 import urllib.request
 import webbrowser
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 WORKER_FLAG = "--zotify-worker"
 APP_NAME = "Zotify GUI"
+CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
 def _app_dir() -> Path:
     """Data folder kept next to the app (portable); %APPDATA% if that isn't writable."""
     base = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
@@ -37,6 +42,7 @@ def _app_dir() -> Path:
 
 APP_DIR = _app_dir()
 SETTINGS_PATH = APP_DIR / "settings.json"
+PLAYLIST_CACHE = APP_DIR / "playlists.json"
 # the app keeps its own Zotify config, login and download history next to
 # itself, separate from command-line Zotify (%APPDATA%\Zotify)
 ZOTIFY_DIR = APP_DIR / "zotify"
@@ -45,12 +51,17 @@ ZOTIFY_HISTORY = ZOTIFY_DIR / ".song_archive"
 LOG_DIR = APP_DIR / "logs"
 CLI_ZOTIFY_DIR = Path(os.environ.get("APPDATA", Path.home())) / "Zotify"
 AUDIO_EXTS = {".aiff", ".flac", ".m4a", ".wav", ".mp3", ".ogg"}
+SETTINGS_VERSION = 2
 DEFAULT_SETTINGS = {
     "root": str(Path.home() / "Downloads" / "Zotify"),
-    "codec": "aiff",
+    "codec": "flac",
+    # "lossless" asks Spotify for FLAC; Zotify falls back to 320k Vorbis until
+    # its upstream supports lossless streams
+    "quality": "auto",
     "real_time": True,
     "wait": 5,
     "last_url": "",
+    "version": SETTINGS_VERSION,
 }
 
 
@@ -75,9 +86,13 @@ def find_ffmpeg() -> str | None:
 
 def load_settings() -> dict:
     try:
-        return {**DEFAULT_SETTINGS, **json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))}
+        stored = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return dict(DEFAULT_SETTINGS)
+    if stored.get("version", 1) < 2:
+        stored["codec"] = "flac"  # v2 switched the default from AIFF to FLAC
+    stored["version"] = SETTINGS_VERSION
+    return {**DEFAULT_SETTINGS, **stored}
 
 
 def save_settings(settings: dict) -> None:
@@ -93,6 +108,19 @@ def prepare_zotify_dir() -> None:
         mine, cli = ZOTIFY_DIR / name, CLI_ZOTIFY_DIR / name
         if not (mine.is_file() and mine.stat().st_size) and cli.is_file() and cli.stat().st_size:
             shutil.copy2(cli, mine)
+
+
+def kill_tree(pid: int) -> None:
+    """End a process and its children (the packaged worker is a launcher plus
+    the real process, and FFmpeg may be running under it)."""
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True,
+                       creationflags=CREATE_NO_WINDOW)
+    else:
+        try:
+            os.kill(pid, 9)
+        except OSError:
+            pass
 
 
 def cover_thumbnail(path: Path, size: int = 200) -> str | None:
@@ -131,6 +159,139 @@ def split_track_name(path: Path) -> tuple[str, str]:
     return "", stem
 
 
+# ---- live listening ------------------------------------------------------------
+# While a track downloads in real time, Zotify writes the decrypted Ogg Vorbis
+# stream to a .tmp file. The app serves that growing file like an internet radio
+# stream: the Vorbis header pages, then audio from a few seconds behind the
+# download position, then new data as it arrives.
+
+def open_shared(path: Path):
+    """Open for reading without blocking Zotify from deleting or renaming the
+    file (Python's open() on Windows doesn't allow delete sharing)."""
+    if os.name != "nt":
+        return open(path, "rb")
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    kernel32.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+                                     wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    GENERIC_READ, SHARE_ALL, OPEN_EXISTING = 0x80000000, 0x1 | 0x2 | 0x4, 3
+    handle = kernel32.CreateFileW(str(path), GENERIC_READ, SHARE_ALL, None, OPEN_EXISTING, 0, None)
+    if handle in (None, wintypes.HANDLE(-1).value):
+        raise FileNotFoundError(ctypes.get_last_error(), "cannot open", str(path))
+    return os.fdopen(msvcrt.open_osfhandle(handle, os.O_RDONLY | os.O_BINARY), "rb")
+
+
+def _ogg_pages(data: bytes, start: int = 0):
+    """Yield (offset, length, granule) of complete Ogg pages in data from start."""
+    pos = start
+    while pos + 27 <= len(data) and data[pos:pos + 4] == b"OggS":
+        nsegs = data[pos + 26]
+        if pos + 27 + nsegs > len(data):
+            return
+        length = 27 + nsegs + sum(data[pos + 27:pos + 27 + nsegs])
+        if pos + length > len(data):
+            return
+        granule = int.from_bytes(data[pos + 6:pos + 14], "little", signed=True)
+        yield pos, length, granule
+        pos += length
+
+
+def _ogg_header_span(path: Path) -> tuple[int, int] | None:
+    """(start, end) of the Vorbis header pages. Spotify files can have a small
+    non-Ogg prefix, so the stream starts at the first real Ogg page."""
+    with open_shared(path) as f:
+        data = f.read(256 * 1024)
+    start = data.find(b"OggS")
+    if start < 0:
+        return None
+    for offset, length, granule in _ogg_pages(data, start):
+        if granule > 0:  # first audio page: everything before it is header
+            return start, offset
+    return None
+
+
+class LiveAudio:
+    LEAD_SECONDS = 4  # start this far behind the download so playback has a buffer
+
+    def __init__(self):
+        self.path: Path | None = None
+        self.rate = 40_000  # bytes/s, updated from progress events
+        handler = self._handler()
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        self.server.daemon_threads = True
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    @property
+    def url(self) -> str:
+        return f"http://127.0.0.1:{self.server.server_address[1]}/live"
+
+    def _handler(self):
+        live = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                if not self.path.startswith("/live"):
+                    self.send_error(404)
+                    return
+                path = live.path
+                span = None
+                for _ in range(40):  # the header pages appear within moments of a track starting
+                    if path and path.is_file():
+                        span = _ogg_header_span(path)
+                        if span:
+                            break
+                    time.sleep(0.25)
+                    path = live.path
+                if not span:
+                    self.send_error(404, "Nothing downloading right now")
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "audio/ogg")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                try:
+                    live._stream(path, span, self.wfile)
+                except (ConnectionError, OSError):
+                    pass
+
+        return Handler
+
+    def _stream(self, path: Path, span: tuple[int, int], out) -> None:
+        header_start, header_end = span
+        with open_shared(path) as f:
+            f.seek(header_start)
+            out.write(f.read(header_end - header_start))
+            size = path.stat().st_size
+            target = max(header_end, size - self.LEAD_SECONDS * self.rate)
+            f.seek(target)
+            chunk = f.read(max(size - target, 0))
+            # resume at a page boundary at or after the target
+            boundary = chunk.find(b"OggS")
+            if boundary < 0:
+                f.seek(header_end)
+            else:
+                f.seek(target + boundary)
+            idle = 0.0
+            while True:
+                data = f.read(64 * 1024)
+                if data:
+                    out.write(data)
+                    out.flush()
+                    idle = 0.0
+                    continue
+                # track finished, skipped or a new one started: end this stream
+                if self.path != path or not path.exists() or idle > 15:
+                    return
+                time.sleep(0.15)
+                idle += 0.15
+
+
 class Api:
     """Methods exposed to the page as window.pywebview.api.*"""
 
@@ -141,6 +302,7 @@ class Api:
         self._proc: subprocess.Popen | None = None
         self._settings = load_settings()
         self._lock = threading.Lock()
+        self._live = LiveAudio()
 
     # ---- helpers -----------------------------------------------------------
     def _push(self, event: dict) -> None:
@@ -152,13 +314,22 @@ class Api:
             return [sys.executable, WORKER_FLAG]
         return [sys.executable, str(Path(__file__).resolve()), WORKER_FLAG]
 
+    def _worker_env(self, ffmpeg: str | None) -> dict:
+        env = dict(os.environ)
+        env["ZOTIFY_GUI_LOG_DIR"] = str(LOG_DIR)
+        if ffmpeg:
+            env["PATH"] = str(Path(ffmpeg).parent) + os.pathsep + env.get("PATH", "")
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONUNBUFFERED"] = "1"
+        return env
+
+    def _login_args(self) -> list[str]:
+        return ["-c", str(ZOTIFY_DIR), "--creds", str(ZOTIFY_DIR), "--song-archive-location", str(ZOTIFY_DIR)]
+
     def _zotify_args(self, url: str) -> list[str]:
         s = self._settings
-        args = [
-            "-c", str(ZOTIFY_DIR),
-            "--creds", str(ZOTIFY_DIR),
-            "--song-archive-location", str(ZOTIFY_DIR),
-            "-q", "auto",
+        args = self._login_args() + [
+            "-q", s.get("quality", "auto"),
             "--codec", s["codec"],
             "-rp", s["root"],
             "-oe", "{playlist}/{artist} - {song_name}",
@@ -167,13 +338,22 @@ class Api:
             "--lyrics-to-file", "False",
             "--md-disc-track-totals", "False",
             "--bulk-wait-time", str(s.get("wait", 5)),
-            # skip by the global history in %APPDATA%\Zotify, so tracks moved
-            # out of the download folder (e.g. into a DJ library) aren't re-downloaded
+            # download in playlist order (Zotify otherwise sorts by duration)
+            "--optimized-downloading", "False",
+            # skip by the app's download history, so tracks moved out of the
+            # download folder (e.g. into a DJ library) aren't re-downloaded
             "-ip", "True",
         ]
         if s["real_time"]:
             args += ["-rt", "True"]
         return args + [url]
+
+    def _clean_temp_files(self) -> None:
+        for tmp in Path(self._settings["root"]).rglob("*.tmp"):
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
 
     def _read_output(self, proc: subprocess.Popen) -> None:
         from worker import EVENT_PREFIX
@@ -191,18 +371,38 @@ class Api:
         with self._lock:
             if self._proc is proc:
                 self._proc = None
+        self._live.path = None
+        self._clean_temp_files()
         self._push({"event": "process_exit", "code": proc.returncode})
 
     def _handle_event(self, event: dict) -> None:
         kind = event.get("event")
         if kind == "login_required":
             webbrowser.open(event["url"])
-        elif kind == "track_done":
-            path = Path(event["path"])
-            event["cover"] = cover_thumbnail(path)
-            event["bytes"] = path.stat().st_size if path.is_file() else 0
-            event["artist"], event["title"] = split_track_name(path)
+        elif kind == "track_start":
+            self._live.path = Path(event["temp"]) if event.get("temp") else None
+            event["live_url"] = self._live.url
+        elif kind == "track_progress" and event.get("rate"):
+            self._live.rate = max(16_000, int(event["rate"]))
+        elif kind in ("track_done", "track_skipped"):
+            self._live.path = None
+            if kind == "track_done":
+                path = Path(event["path"])
+                event["cover"] = cover_thumbnail(path)
+                event["bytes"] = path.stat().st_size if path.is_file() else 0
+                event["artist"], event["title"] = split_track_name(path)
         self._push(event)
+
+    def _send(self, cmd: str) -> bool:
+        proc = self._proc
+        if proc is None or proc.stdin is None:
+            return False
+        try:
+            proc.stdin.write(cmd + "\n")
+            proc.stdin.flush()
+            return True
+        except OSError:
+            return False
 
     # ---- called from the page ----------------------------------------------
     def get_state(self) -> dict:
@@ -240,6 +440,36 @@ class Api:
         except Exception:
             return {"ok": True, "url": url, "title": "", "image": None}
 
+    def my_playlists(self, refresh: bool = False) -> dict:
+        """The account's playlists, cached; refresh=True asks Spotify again
+        (takes about half a minute, mostly logging in)."""
+        if not refresh:
+            try:
+                return {"ok": True, **json.loads(PLAYLIST_CACHE.read_text(encoding="utf-8"))}
+            except (OSError, ValueError):
+                pass
+        prepare_zotify_dir()
+        from worker import EVENT_PREFIX
+        try:
+            out = subprocess.run(
+                self._worker_cmd() + ["--list-playlists"] + self._login_args(),
+                stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8",
+                errors="replace", env=self._worker_env(None), timeout=180,
+                creationflags=CREATE_NO_WINDOW,
+            ).stdout
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "error": "Spotify took too long to answer. Try again."}
+        for line in out.splitlines():
+            if line.startswith(EVENT_PREFIX):
+                event = json.loads(line[len(EVENT_PREFIX):])
+                if event.get("event") == "playlists":
+                    data = {"user": event["user"], "items": event["items"], "fetched": time.time()}
+                    PLAYLIST_CACHE.write_text(json.dumps(data), encoding="utf-8")
+                    return {"ok": True, **data}
+                if event.get("event") == "login_required":
+                    return {"ok": False, "error": "Log in first: start any download once to sign in to Spotify."}
+        return {"ok": False, "error": "Couldn't load your playlists. Check the log in Settings."}
+
     def existing_tracks(self, folder_name: str) -> list[dict]:
         """Tracks of this playlist already downloaded: files still in the folder,
         plus ones listed in Zotify's history that have since been moved out."""
@@ -274,30 +504,14 @@ class Api:
                 return {"ok": False, "error": "FFmpeg not found. Install it with: winget install Gyan.FFmpeg"}
             self.update_settings({"last_url": url})
             prepare_zotify_dir()
-            env = dict(os.environ)
-            env["ZOTIFY_GUI_LOG_DIR"] = str(LOG_DIR)
-            env["PATH"] = str(Path(ffmpeg).parent) + os.pathsep + env.get("PATH", "")
-            env["PYTHONIOENCODING"] = "utf-8"
-            env["PYTHONUNBUFFERED"] = "1"
             self._proc = subprocess.Popen(
                 self._worker_cmd() + self._zotify_args(url),
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                text=True, encoding="utf-8", errors="replace", env=env,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                text=True, encoding="utf-8", errors="replace", env=self._worker_env(ffmpeg),
+                creationflags=CREATE_NO_WINDOW,
             )
             threading.Thread(target=self._read_output, args=(self._proc,), daemon=True).start()
         return {"ok": True}
-
-    def _send(self, cmd: str) -> bool:
-        proc = self._proc
-        if proc is None or proc.stdin is None:
-            return False
-        try:
-            proc.stdin.write(cmd + "\n")
-            proc.stdin.flush()
-            return True
-        except OSError:
-            return False
 
     def pause_after_track(self) -> bool:
         return self._send("pause")
@@ -305,17 +519,24 @@ class Api:
     def cancel_pause(self) -> bool:
         return self._send("resume")
 
+    def skip_track(self) -> bool:
+        return self._send("skip")
+
     def stop_now(self) -> bool:
+        """Stop right away: ask the worker to stop cleanly, and end the whole
+        process tree if it hasn't within a few seconds (e.g. while logging in)."""
         proc = self._proc
         if proc is None:
             return False
-        proc.kill()
-        # drop the half-downloaded temp file so the folder stays clean
-        for tmp in Path(self._settings["root"]).rglob("*.tmp"):
+        self._send("stop")
+
+        def enforce():
             try:
-                tmp.unlink()
-            except OSError:
-                pass
+                proc.wait(timeout=6)
+            except subprocess.TimeoutExpired:
+                kill_tree(proc.pid)
+
+        threading.Thread(target=enforce, daemon=True).start()
         return True
 
     def open_folder(self, sub: str = "") -> None:
@@ -350,16 +571,16 @@ def run_gui() -> None:
 
     def on_closing():
         if api._proc is not None:
-            api.stop_now()
+            kill_tree(api._proc.pid)
+            api._clean_temp_files()
 
     window.events.closing += on_closing
     webview.start(debug=os.environ.get("ZOTIFY_GUI_DEBUG") == "1")
 
 
 if __name__ == "__main__":
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
     if len(sys.argv) > 1 and sys.argv[1] == WORKER_FLAG:
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
         from worker import run
         sys.exit(run(sys.argv[2:]))
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
     run_gui()

@@ -144,6 +144,8 @@ body.active .folder .flap { transform: perspective(200px) rotateX(-18deg); }
 .chip { white-space: nowrap; }
 .loader { padding: 18px; display: grid; gap: 14px; }
 .url-row { display: flex; gap: 10px; }
+.pl-btn { display: flex; align-items: center; gap: 8px; }
+.pl-btn svg { width: 16px; height: 16px; }
 .url-input {
   flex: 1; min-width: 0; padding: 14px 16px; border-radius: 14px; border: 1px solid var(--panel-border);
   background: rgba(5, 2, 12, .65); color: var(--text); font-size: 14px; outline: none; transition: .2s;
@@ -177,7 +179,8 @@ body.active .folder .flap { transform: perspective(200px) rotateX(-18deg); }
 .go:not(:disabled):hover { filter: brightness(1.1); }
 .pause-btn { height: 58px; }
 .pause-btn.armed { border-color: var(--lime); color: var(--lime); }
-.stop-btn { height: 58px; width: 58px; padding: 0; display: grid; place-items: center; }
+.stop-btn { height: 58px; padding: 0 16px; display: flex; align-items: center; gap: 8px; }
+.stop-btn:not(:disabled) { color: #ffd1da; border-color: rgba(255,77,109,.55); background: rgba(255,77,109,.12); }
 .stop-btn:hover:not(:disabled) { border-color: var(--danger) !important; box-shadow: 0 0 14px rgba(255,77,109,.7) !important; }
 
 .stats { display: grid; grid-template-columns: auto 1fr; gap: 20px; padding: 18px; align-items: center; }
@@ -248,7 +251,7 @@ footer { display: flex; align-items: center; gap: 12px; font-size: 12px; color: 
 
 .overlay { position: fixed; inset: 0; z-index: 40; display: none; place-items: center; background: rgba(5, 2, 12, .75); backdrop-filter: blur(10px); }
 .overlay.show { display: grid; animation: rise .3s ease; }
-.modal { width: min(460px, 90vw); padding: 30px; text-align: center; }
+.modal { background: rgba(14, 7, 28, .97); width: min(460px, 90vw); padding: 30px; text-align: center; }
 .modal h2 { margin: 0 0 10px; font-size: 24px; }
 .modal p { color: var(--muted); line-height: 1.6; margin: 0 0 18px; }
 .modal .btn { height: 46px; }
@@ -258,6 +261,35 @@ footer { display: flex; align-items: center; gap: 12px; font-size: 12px; color: 
 .toast.good { border-color: rgba(182,255,59,.5); }
 .toast.bad { border-color: rgba(255,77,109,.6); }
 #confetti { position: fixed; inset: 0; z-index: 60; pointer-events: none; }
+/* live listen + skip */
+.live-row { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; flex-wrap: wrap; }
+.live-btn { height: 38px; padding: 0 14px; display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.live-btn svg { width: 16px; height: 16px; }
+.live-btn.on { border-color: var(--lime); color: var(--lime); }
+.live-btn.on .eq { display: inline-flex; }
+.eq { display: none; gap: 2px; align-items: flex-end; height: 12px; }
+.eq i { width: 3px; background: currentColor; animation: eq .8s ease-in-out infinite; }
+.eq i:nth-child(2) { animation-delay: -.3s; } .eq i:nth-child(3) { animation-delay: -.55s; }
+@keyframes eq { 0%, 100% { height: 3px; } 50% { height: 12px; } }
+.vol { width: 90px; accent-color: var(--lime); }
+.live-note { font-size: 11px; color: var(--muted); width: 100%; text-align: center; min-height: 14px; }
+
+/* playlist picker */
+.picker { background: rgba(14, 7, 28, .97); width: min(620px, 92vw); max-height: 82vh; padding: 22px; display: flex; flex-direction: column; gap: 14px; text-align: left; }
+.picker-head { display: flex; align-items: center; gap: 10px; }
+.picker-head h2 { margin: 0; font-size: 20px; flex: 1; }
+.picker-list { overflow-y: auto; display: flex; flex-direction: column; gap: 4px; min-height: 120px; padding-right: 4px; }
+.picker-list::-webkit-scrollbar { width: 8px; }
+.picker-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 8px; }
+.pl-row { display: grid; grid-template-columns: 44px 1fr auto; gap: 12px; align-items: center; padding: 7px 10px; border-radius: 10px; cursor: pointer; border: 1px solid transparent; }
+.pl-row:hover { background: rgba(255,255,255,.06); border-color: var(--panel-border); }
+.pl-row img, .pl-row .ph { width: 44px; height: 44px; border-radius: 7px; object-fit: cover; }
+.pl-row .ph { display: grid; place-items: center; font-weight: 900; color: white; background: linear-gradient(135deg, var(--violet), var(--pink)); }
+.pl-row .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 700; }
+.pl-row .ow { font-size: 11.5px; color: var(--muted); }
+.pl-row .ct { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.picker-foot { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--muted); }
+
 
 /* narrow: stack the panels and let the page scroll */
 @media (max-width: 700px) {
@@ -358,6 +390,18 @@ footer { display: flex; align-items: center; gap: 12px; font-size: 12px; color: 
       </div>
       <div class="bar"><div class="fill" id="trackFill"></div></div>
       <div class="track-meta"><span id="trackPct">0%</span><span id="trackRate">—</span><span id="trackEta">—</span></div>
+      <div class="live-row">
+        <button class="btn live-btn" id="listenBtn" disabled title="Hear the song that's downloading, a few seconds behind live">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1v-6h3zM3 19a2 2 0 0 0 2 2h1v-6H3z"/></svg>
+          <span id="listenText">LISTEN</span><span class="eq"><i></i><i></i><i></i></span>
+        </button>
+        <input class="vol" id="volume" type="range" min="0" max="1" step="0.05" value="0.8" title="Volume">
+        <button class="btn live-btn" id="skipBtn" disabled title="Abandon this song and move to the next">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 5l10 7-10 7zM17 5h2v14h-2z"/></svg>SKIP SONG
+        </button>
+        <div class="live-note" id="liveNote"></div>
+      </div>
+      <audio id="liveAudio" preload="none"></audio>
     </section>
 
     <section class="control">
@@ -365,6 +409,9 @@ footer { display: flex; align-items: center; gap: 12px; font-size: 12px; color: 
         <div class="url-row">
           <input class="url-input" id="urlInput" placeholder="https://open.spotify.com/playlist/..." spellcheck="false">
           <button class="btn" id="loadBtn">LOAD</button>
+          <button class="btn pl-btn" id="myPlBtn" title="Pick from your Spotify playlists">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h13M3 12h13M3 18h9"/><circle cx="18" cy="17" r="3"/><path d="M21 17V6"/></svg>MY PLAYLISTS
+          </button>
         </div>
         <div class="playlist-card" id="playlistCard">
           <img id="plImg" alt="">
@@ -382,8 +429,8 @@ footer { display: flex; align-items: center; gap: 12px; font-size: 12px; color: 
         <div class="actions">
           <button class="btn go" id="goBtn" disabled>START</button>
           <button class="btn pause-btn" id="pauseBtn" disabled>PAUSE AFTER SONG</button>
-          <button class="btn stop-btn" id="stopBtn" disabled title="Stop now (current song is discarded)">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+          <button class="btn stop-btn" id="stopBtn" disabled title="Stop now (the unfinished song is discarded)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>STOP
           </button>
         </div>
       </div>
@@ -417,7 +464,7 @@ footer { display: flex; align-items: center; gap: 12px; font-size: 12px; color: 
 
   <footer>
     <span class="dot" id="loginDot"></span><span id="loginText">Spotify</span>
-    <div class="ticker"><span id="ticker">ZOTIFY GUI · lossless AIFF · ID3 tags + cover art · real-time downloads · built for rekordbox</span></div>
+    <div class="ticker"><span id="ticker">ZOTIFY GUI · lossless FLAC · tags + cover art · real-time downloads · built for rekordbox</span></div>
     <span>computergabe/zotify</span>
   </footer>
 </div>
@@ -428,9 +475,15 @@ footer { display: flex; align-items: center; gap: 12px; font-size: 12px; color: 
   <div class="field">
     <label>Format</label>
     <div class="seg" id="codecSeg">
-      <button data-v="aiff">AIFF</button><button data-v="flac">FLAC</button><button data-v="alac">ALAC</button><button data-v="mp3">MP3</button>
+      <button data-v="flac">FLAC</button><button data-v="aiff">AIFF</button><button data-v="alac">ALAC</button><button data-v="mp3">MP3</button>
     </div>
     <div class="hint" id="codecHint"></div>
+  </div>
+  <div class="field">
+    <div class="switch">
+      <div><label style="margin:0">Lossless when available</label><div class="hint">Asks Spotify for lossless (FLAC) streams. Zotify can't get them yet, so you get 320k until it can.</div></div>
+      <div class="toggle" id="llToggle"></div>
+    </div>
   </div>
   <div class="field">
     <div class="switch">
@@ -454,13 +507,25 @@ footer { display: flex; align-items: center; gap: 12px; font-size: 12px; color: 
     <button class="btn" id="loginLinkBtn">OPEN THE LOGIN PAGE AGAIN</button>
   </div>
 </div>
+<div class="overlay" id="pickerOverlay">
+  <div class="panel picker">
+    <div class="picker-head">
+      <h2>Your playlists</h2>
+      <button class="btn" id="plRefresh" style="height:36px">REFRESH</button>
+      <button class="btn" id="plClose" style="height:36px">CLOSE</button>
+    </div>
+    <input class="url-input" id="plSearch" placeholder="Search your playlists" spellcheck="false">
+    <div class="picker-list" id="plList"></div>
+    <div class="picker-foot"><span id="plFoot"></span></div>
+  </div>
+</div>
 <div class="toasts" id="toasts"></div>
 
 <script>
 const $ = (id) => document.getElementById(id);
 const CODEC_INFO = {
+  flac: ["FLAC lossless", "Same audio as AIFF at about half the size. Plays in rekordbox; some older CDJs can't read it."],
   aiff: ["AIFF lossless", "Lossless, ~10 MB per minute. Best for rekordbox and CDJs."],
-  flac: ["FLAC lossless", "Lossless and smaller than AIFF. Not supported on older CDJs."],
   alac: ["ALAC lossless", "Apple Lossless in .m4a files."],
   mp3:  ["MP3 320", "Smallest files. Re-encodes Spotify's audio once more."],
 };
@@ -502,6 +567,7 @@ function renderSettings() {
   document.querySelectorAll("#codecSeg button").forEach(b => b.classList.toggle("on", b.dataset.v === s.codec));
   $("codecHint").textContent = CODEC_INFO[s.codec][1];
   $("rtToggle").classList.toggle("on", !!s.real_time);
+  $("llToggle").classList.toggle("on", s.quality === "lossless");
   $("folderPath").textContent = s.root; $("folderPath").title = s.root;
   $("pillFormat").textContent = CODEC_INFO[s.codec][0];
   $("pillRt").textContent = s.real_time ? "real-time" : "full speed";
@@ -515,6 +581,7 @@ async function saveSetting(changes) {
 }
 document.querySelectorAll("#codecSeg button").forEach(b => b.onclick = () => saveSetting({ codec: b.dataset.v }));
 $("rtToggle").onclick = () => saveSetting({ real_time: !S.settings.real_time });
+$("llToggle").onclick = () => saveSetting({ quality: S.settings.quality === "lossless" ? "auto" : "lossless" });
 $("chooseFolder").onclick = async () => {
   if (S.running) { toast("Change the folder after this download finishes."); return; }
   const p = await api().choose_folder();
@@ -569,6 +636,84 @@ function addTile(t, isNew) {
   else $("crate").appendChild(tile);
 }
 
+
+// ---------- playlist picker ----------
+let myPlaylists = null;
+function renderPlaylists() {
+  const q = $("plSearch").value.trim().toLowerCase();
+  const items = (myPlaylists || []).filter(p => !q || p.name.toLowerCase().includes(q));
+  $("plList").innerHTML = "";
+  if (!items.length) { $("plList").innerHTML = `<div class="empty">${myPlaylists ? "No playlists match." : ""}</div>`; return; }
+  for (const p of items) {
+    const row = document.createElement("div");
+    row.className = "pl-row";
+    row.innerHTML = (p.image ? `<img alt="" loading="lazy">` : `<div class="ph"></div>`) +
+      `<div style="min-width:0"><div class="nm"></div><div class="ow"></div></div><div class="ct"></div>`;
+    if (p.image) row.querySelector("img").src = p.image;
+    else row.querySelector(".ph").textContent = (p.name || "?").trim().charAt(0).toUpperCase();
+    row.querySelector(".nm").textContent = p.name || "Untitled";
+    row.querySelector(".ow").textContent = p.owner === myUser ? "Yours" : (p.owner === "spotify" ? "By Spotify" : "Saved");
+    row.querySelector(".ct").textContent = p.count != null ? `${p.count} tracks` : "";
+    row.onclick = () => {
+      $("pickerOverlay").classList.remove("show");
+      $("urlInput").value = `https://open.spotify.com/playlist/${p.id}`;
+      loadLink();
+    };
+    $("plList").appendChild(row);
+  }
+}
+let myUser = "";
+async function loadMyPlaylists(refresh) {
+  $("plFoot").textContent = refresh || !myPlaylists ? "Asking Spotify for your playlists… (about half a minute)" : "";
+  if (!myPlaylists) $("plList").innerHTML = '<div class="empty">Loading…</div>';
+  $("plRefresh").disabled = true;
+  const res = await api().my_playlists(!!refresh);
+  $("plRefresh").disabled = false;
+  if (!res.ok) { $("plFoot").textContent = res.error; return; }
+  myPlaylists = res.items; myUser = res.user;
+  const when = new Date(res.fetched * 1000);
+  $("plFoot").textContent = `${res.items.length} playlists · updated ${when.toLocaleDateString()} ${when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  renderPlaylists();
+}
+$("myPlBtn").onclick = () => {
+  if (S.running) { toast("Pick a new playlist after this download finishes."); return; }
+  $("pickerOverlay").classList.add("show");
+  $("plSearch").value = ""; $("plSearch").focus();
+  if (myPlaylists) renderPlaylists();
+  loadMyPlaylists(false);
+};
+$("plRefresh").onclick = () => loadMyPlaylists(true);
+$("plClose").onclick = () => $("pickerOverlay").classList.remove("show");
+$("pickerOverlay").addEventListener("click", e => { if (e.target.id === "pickerOverlay") $("pickerOverlay").classList.remove("show"); });
+$("plSearch").addEventListener("input", renderPlaylists);
+document.addEventListener("keydown", e => { if (e.key === "Escape") $("pickerOverlay").classList.remove("show"); });
+
+// ---------- live listen + skip ----------
+const audio = $("liveAudio");
+audio.volume = 0.8;
+$("volume").oninput = () => { audio.volume = +$("volume").value; };
+function setListening(on) {
+  S.listening = on;
+  $("listenBtn").classList.toggle("on", on);
+  $("listenText").textContent = on ? "LISTENING" : "LISTEN";
+  if (on && S.liveUrl) {
+    audio.src = S.liveUrl + "?t=" + Date.now();
+    audio.play().catch(() => {});
+    $("liveNote").textContent = "A few seconds behind the download";
+  } else {
+    audio.pause(); audio.removeAttribute("src"); audio.load();
+    $("liveNote").textContent = "";
+  }
+}
+$("listenBtn").onclick = () => setListening(!S.listening);
+audio.addEventListener("waiting", () => { if (S.listening) $("liveNote").textContent = "Buffering…"; });
+audio.addEventListener("playing", () => { if (S.listening) $("liveNote").textContent = "A few seconds behind the download"; });
+$("skipBtn").onclick = async () => {
+  if (!S.running || !S.trackStart) return;
+  $("skipBtn").disabled = true;
+  await api().skip_track();
+};
+
 // ---------- start / pause / stop ----------
 $("goBtn").onclick = async () => {
   if (!S.playlist) return;
@@ -585,17 +730,20 @@ $("pauseBtn").onclick = async () => {
 };
 $("stopBtn").onclick = async () => {
   if (!S.running) return;
+  $("stopBtn").disabled = true;
+  setState("Stopping");
   await api().stop_now();
-  toast("Stopped. The unfinished song was discarded.");
 };
 function updateButtons() {
   $("goBtn").disabled = S.running || !S.playlist;
   $("goBtn").textContent = S.running ? "DOWNLOADING…" : "START";
   $("pauseBtn").disabled = !S.running;
   $("stopBtn").disabled = !S.running;
+  $("listenBtn").disabled = !S.running;
+  $("skipBtn").disabled = !S.running || !S.trackStart;
   $("pauseBtn").classList.toggle("armed", S.pauseArmed);
   $("pauseBtn").textContent = S.pauseArmed ? "PAUSING AFTER SONG" : "PAUSE AFTER SONG";
-  $("loadBtn").disabled = S.running; $("urlInput").disabled = S.running;
+  $("loadBtn").disabled = S.running; $("urlInput").disabled = S.running; $("myPlBtn").disabled = S.running;
 }
 function updateStats() {
   const total = S.total || 0;
@@ -622,6 +770,8 @@ window.onZotifyEvent = (e) => {
     case "track_start":
       $("loginOverlay").classList.remove("show");
       S.trackStart = performance.now(); S.trackDone = 0; S.trackTotal = e.size || 0; S.rate = 0;
+      S.liveUrl = e.live_url; updateButtons();
+      if (S.listening) setListening(true);  // follow on to the new song
       setState(S.pauseArmed ? "Last song before pause" : "Downloading");
       $("trackTitle").textContent = e.name || "Unknown track";
       $("trackArtist").textContent = [e.artist, e.album].filter(Boolean).join(" — ");
@@ -650,6 +800,12 @@ window.onZotifyEvent = (e) => {
     case "pause_armed": S.pauseArmed = true; updateButtons(); setState("Last song before pause"); toast("Will pause when this song finishes."); break;
     case "pause_disarmed": S.pauseArmed = false; updateButtons(); setState("Downloading"); toast("Pause cancelled."); break;
     case "pausing": setState("Pausing"); break;
+    case "stopping": setState("Stopping"); break;
+    case "track_skipped":
+      S.trackStart = 0; updateButtons();
+      toast(`Skipped: ${e.name}`);
+      setState("Skipped, moving to the next song");
+      break;
     case "login_required":
       S.loginUrl = e.url; $("loginOverlay").classList.add("show"); setState("Waiting for Spotify login"); break;
     case "message":
@@ -664,14 +820,15 @@ window.onZotifyEvent = (e) => {
     case "log": log(e.text); break;
     case "crashed": log("CRASH: " + e.error); toast("Zotify hit an error. Check the log in Settings.", "bad"); break;
     case "finished":
-      finish(e.paused ? "paused" : (e.code ? "error" : "done")); break;
+      finish(e.stopped ? "stopped" : e.paused ? "paused" : (e.code ? "error" : "done")); break;
     case "process_exit":
       if (S.running) finish(e.code ? "stopped" : "done"); break;
   }
 };
 function finish(kind) {
   if (!S.running) return;
-  S.running = false; S.pauseArmed = false; S.rate = 0;
+  S.running = false; S.pauseArmed = false; S.rate = 0; S.trackStart = 0;
+  if (S.listening) setListening(false);
   setActive(false); updateButtons(); updateStats();
   $("loginOverlay").classList.remove("show");
   api().get_state().then(st => setLogin(st.logged_in));
@@ -686,9 +843,10 @@ function finish(kind) {
     toast("Paused. Finished songs are saved.", "good");
   } else {
     setState("Stopped"); $("trackTitle").textContent = "Stopped";
+    toast("Stopped. The unfinished song was discarded.");
     $("trackArtist").textContent = "Press Start to carry on where you left off";
   }
-  $("ticker").textContent = "ZOTIFY GUI · lossless AIFF · ID3 tags + cover art · real-time downloads · built for rekordbox";
+  $("ticker").textContent = "ZOTIFY GUI · lossless FLAC · tags + cover art · real-time downloads · built for rekordbox";
 }
 $("loginLinkBtn").onclick = () => { if (S.loginUrl) api().open_link(S.loginUrl); };
 function setLogin(ok) {
