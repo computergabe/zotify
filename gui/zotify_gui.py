@@ -135,15 +135,17 @@ class Api:
     """Methods exposed to the page as window.pywebview.api.*"""
 
     def __init__(self):
-        self.window = None
-        self.proc: subprocess.Popen | None = None
-        self.settings = load_settings()
+        # underscore names: pywebview exposes every public attribute to the page and
+        # walks into it, which hangs the UI thread when it reaches the native window
+        self._window = None
+        self._proc: subprocess.Popen | None = None
+        self._settings = load_settings()
         self._lock = threading.Lock()
 
     # ---- helpers -----------------------------------------------------------
     def _push(self, event: dict) -> None:
-        if self.window:
-            self.window.evaluate_js(f"window.onZotifyEvent({json.dumps(event)})")
+        if self._window:
+            self._window.evaluate_js(f"window.onZotifyEvent({json.dumps(event)})")
 
     def _worker_cmd(self) -> list[str]:
         if getattr(sys, "frozen", False):
@@ -151,7 +153,7 @@ class Api:
         return [sys.executable, str(Path(__file__).resolve()), WORKER_FLAG]
 
     def _zotify_args(self, url: str) -> list[str]:
-        s = self.settings
+        s = self._settings
         args = [
             "-c", str(ZOTIFY_DIR),
             "--creds", str(ZOTIFY_DIR),
@@ -187,8 +189,8 @@ class Api:
                 self._push({"event": "log", "text": line})
         proc.wait()
         with self._lock:
-            if self.proc is proc:
-                self.proc = None
+            if self._proc is proc:
+                self._proc = None
         self._push({"event": "process_exit", "code": proc.returncode})
 
     def _handle_event(self, event: dict) -> None:
@@ -204,21 +206,22 @@ class Api:
 
     # ---- called from the page ----------------------------------------------
     def get_state(self) -> dict:
+        prepare_zotify_dir()
         return {
-            "settings": self.settings,
+            "settings": self._settings,
             "ffmpeg": find_ffmpeg(),
             "logged_in": ZOTIFY_CREDS.is_file() and ZOTIFY_CREDS.stat().st_size > 0,
-            "running": self.proc is not None,
+            "running": self._proc is not None,
         }
 
     def update_settings(self, changes: dict) -> dict:
-        self.settings.update({k: v for k, v in changes.items() if k in DEFAULT_SETTINGS})
-        save_settings(self.settings)
-        return self.settings
+        self._settings.update({k: v for k, v in changes.items() if k in DEFAULT_SETTINGS})
+        save_settings(self._settings)
+        return self._settings
 
     def choose_folder(self) -> str | None:
         import webview
-        picked = self.window.create_file_dialog(webview.FOLDER_DIALOG, directory=self.settings["root"])
+        picked = self._window.create_file_dialog(webview.FOLDER_DIALOG, directory=self._settings["root"])
         if picked:
             self.update_settings({"root": picked[0]})
             return picked[0]
@@ -240,7 +243,7 @@ class Api:
     def existing_tracks(self, folder_name: str) -> list[dict]:
         """Tracks of this playlist already downloaded: files still in the folder,
         plus ones listed in Zotify's history that have since been moved out."""
-        folder = Path(self.settings["root"]) / folder_name
+        folder = Path(self._settings["root"]) / folder_name
         tracks, seen = [], set()
         if folder.is_dir():
             for p in sorted(folder.iterdir(), key=lambda p: p.stat().st_mtime):
@@ -264,7 +267,7 @@ class Api:
 
     def start(self, url: str) -> dict:
         with self._lock:
-            if self.proc is not None:
+            if self._proc is not None:
                 return {"ok": False, "error": "A download is already running."}
             ffmpeg = find_ffmpeg()
             if not ffmpeg:
@@ -276,17 +279,17 @@ class Api:
             env["PATH"] = str(Path(ffmpeg).parent) + os.pathsep + env.get("PATH", "")
             env["PYTHONIOENCODING"] = "utf-8"
             env["PYTHONUNBUFFERED"] = "1"
-            self.proc = subprocess.Popen(
+            self._proc = subprocess.Popen(
                 self._worker_cmd() + self._zotify_args(url),
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                 text=True, encoding="utf-8", errors="replace", env=env,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
-            threading.Thread(target=self._read_output, args=(self.proc,), daemon=True).start()
+            threading.Thread(target=self._read_output, args=(self._proc,), daemon=True).start()
         return {"ok": True}
 
     def _send(self, cmd: str) -> bool:
-        proc = self.proc
+        proc = self._proc
         if proc is None or proc.stdin is None:
             return False
         try:
@@ -303,12 +306,12 @@ class Api:
         return self._send("resume")
 
     def stop_now(self) -> bool:
-        proc = self.proc
+        proc = self._proc
         if proc is None:
             return False
         proc.kill()
         # drop the half-downloaded temp file so the folder stays clean
-        for tmp in Path(self.settings["root"]).rglob("*.tmp"):
+        for tmp in Path(self._settings["root"]).rglob("*.tmp"):
             try:
                 tmp.unlink()
             except OSError:
@@ -316,9 +319,9 @@ class Api:
         return True
 
     def open_folder(self, sub: str = "") -> None:
-        target = Path(self.settings["root"]) / sub
+        target = Path(self._settings["root"]) / sub
         if not target.is_dir():
-            target = Path(self.settings["root"])
+            target = Path(self._settings["root"])
         target.mkdir(parents=True, exist_ok=True)
         os.startfile(target)
 
@@ -330,14 +333,23 @@ class Api:
 def run_gui() -> None:
     import webview
     api = Api()
+    # open at a size that fits the screen (taskbar and title bar included)
+    width, height = 1180, 860
+    try:
+        screen = webview.screens[0]
+        width = min(width, int(screen.width * 0.9))
+        height = min(height, int(screen.height * 0.85))
+    except Exception:
+        pass
     window = webview.create_window(
         APP_NAME, str(resource_path("ui", "index.html")), js_api=api,
-        width=1180, height=860, min_size=(900, 680), background_color="#07020f",
+        width=width, height=height, min_size=(760, 560), resizable=True,
+        background_color="#07020f",
     )
-    api.window = window
+    api._window = window
 
     def on_closing():
-        if api.proc is not None:
+        if api._proc is not None:
             api.stop_now()
 
     window.events.closing += on_closing
