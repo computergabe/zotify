@@ -7,7 +7,7 @@
 <style>
 :root {
   --bg: #07020f;
-  --panel: rgba(20, 10, 40, 0.55);
+  --panel: #150b28;
   --panel-border: rgba(180, 120, 255, 0.18);
   --text: #f3eaff;
   --muted: #a993c9;
@@ -25,7 +25,11 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body {
-  background: var(--bg);
+  /* painted once; nothing behind the panels moves */
+  background:
+    radial-gradient(900px 600px at 0% 0%, #2b0b33 0%, transparent 70%),
+    radial-gradient(900px 700px at 100% 100%, #1b1040 0%, transparent 70%),
+    var(--bg);
   color: var(--text);
   font-family: var(--font);
   overflow: hidden;
@@ -33,21 +37,6 @@ body {
 }
 button, input { font-family: inherit; }
 
-/* ---------- animated background ---------- */
-.aurora { position: fixed; inset: 0; overflow: hidden; z-index: 0; pointer-events: none; }
-.blob {
-  position: absolute; width: 60vmax; height: 60vmax; border-radius: 50%;
-  filter: blur(110px); opacity: .2; mix-blend-mode: screen;
-  animation: drift 50s ease-in-out infinite alternate;
-}
-.blob.b1 { background: radial-gradient(circle, var(--pink), transparent 65%); top: -25vmax; left: -15vmax; }
-.blob.b2 { background: radial-gradient(circle, var(--violet), transparent 65%); bottom: -30vmax; right: -20vmax; animation-duration: 32s; animation-delay: -8s; }
-.blob.b3 { background: radial-gradient(circle, var(--cyan), transparent 65%); top: 20vmax; left: 35vmax; width: 40vmax; height: 40vmax; opacity: .25; animation-duration: 38s; animation-delay: -16s; }
-@keyframes drift {
-  0%   { transform: translate(0, 0) scale(1); }
-  50%  { transform: translate(8vmax, 6vmax) scale(1.15); }
-  100% { transform: translate(-6vmax, 10vmax) scale(.95); }
-}
 
 /* ---------- layout ---------- */
 .app {
@@ -59,23 +48,20 @@ header { display: flex; align-items: center; gap: 18px; }
   font-size: 34px; font-weight: 900; letter-spacing: .14em; font-style: italic;
   background: linear-gradient(90deg, var(--pink), var(--violet), var(--cyan));
   -webkit-background-clip: text; background-clip: text; color: transparent;
-  filter: drop-shadow(0 0 8px rgba(255, 47, 179, .3));
 }
-@keyframes shimmer { to { background-position: 300% 0; } }
 .tagline { color: var(--muted); font-size: 13px; letter-spacing: .3em; text-transform: uppercase; }
 .header-spacer { flex: 1; }
 .chip {
   display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px;
   background: var(--panel); border: 1px solid var(--panel-border); font-size: 12.5px; color: var(--muted);
-  backdrop-filter: blur(12px);
 }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-.dot.ok { background: var(--lime); box-shadow: 0 0 10px var(--lime); }
-.dot.bad { background: var(--danger); box-shadow: 0 0 10px var(--danger); }
+.dot.ok { background: var(--lime); }
+.dot.bad { background: var(--danger); }
 .icon-btn {
   width: 40px; height: 40px; border-radius: 12px; border: 1px solid var(--panel-border);
   background: var(--panel); color: var(--text); cursor: pointer; display: grid; place-items: center;
-  backdrop-filter: blur(12px); transition: .2s;
+  transition: border-color .2s;
 }
 .icon-btn:hover { border-color: var(--pink); box-shadow: var(--glow-pink); }
 .icon-btn svg { width: 20px; height: 20px; }
@@ -83,13 +69,7 @@ header { display: flex; align-items: center; gap: 18px; }
 main { display: grid; grid-template-columns: minmax(290px, 1fr) minmax(360px, 1.15fr); gap: 22px; min-height: 0; }
 .panel {
   background: var(--panel); border: 1px solid var(--panel-border); border-radius: var(--radius);
-  backdrop-filter: blur(18px) saturate(140%); position: relative; overflow: hidden;
-}
-.panel::before {
-  content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px; pointer-events: none;
-  background: linear-gradient(135deg, rgba(255,47,179,.3), transparent 35%, transparent 65%, rgba(25,240,255,.3));
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor; mask-composite: exclude;
+  position: relative; overflow: hidden;
 }
 
 /* ---------- deck (left) ---------- */
@@ -100,11 +80,9 @@ main { display: grid; grid-template-columns: minmax(290px, 1fr) minmax(360px, 1.
 .node.src { left: 3%; }
 .node.dst { right: 3%; }
 .node .cap { font-size: 10.5px; letter-spacing: .25em; text-transform: uppercase; color: var(--muted); }
-.spotify-logo { width: 92px; height: 92px; border-radius: 50%; filter: drop-shadow(0 0 14px rgba(30, 215, 96, .25)); transition: filter .6s; }
-body.active .spotify-logo { animation: breathe 2.4s ease-in-out infinite; filter: drop-shadow(0 0 22px rgba(30, 215, 96, .5)); }
-@keyframes breathe { 50% { transform: scale(1.05); } }
+.spotify-logo { width: 92px; height: 92px; border-radius: 50%; }
 .folder { position: relative; width: 104px; height: 88px; }
-.folder svg { width: 100%; height: 100%; overflow: visible; filter: drop-shadow(0 8px 18px rgba(0,0,0,.45)); }
+.folder svg { width: 100%; height: 100%; overflow: visible; }
 .folder .flap { transform-origin: 50% 100%; transition: transform .35s ease; }
 body.active .folder .flap { transform: perspective(200px) rotateX(-18deg); }
 .folder.catch svg { animation: bump .5s ease; }
@@ -123,7 +101,7 @@ body.active .folder .flap { transform: perspective(200px) rotateX(-18deg); }
 .now-text { min-width: 0; text-align: center; }
 .now-cover.show + .now-text { text-align: left; }
 
-.now .state { font-size: 11px; letter-spacing: .35em; text-transform: uppercase; color: var(--cyan); text-shadow: var(--glow-cyan); }
+.now .state { font-size: 11px; letter-spacing: .35em; text-transform: uppercase; color: var(--cyan); }
 .now .title {
   font-size: 22px; font-weight: 800; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
@@ -134,7 +112,7 @@ body.active .folder .flap { transform: perspective(200px) rotateX(-18deg); }
 .bar .fill {
   height: 100%; width: 0%; border-radius: inherit;
   background: linear-gradient(90deg, var(--pink), var(--violet), var(--cyan));
-  box-shadow: var(--glow-pink); transition: width .35s ease; position: relative; overflow: hidden;
+  transition: width .35s ease;
 }
 .track-meta { display: flex; justify-content: space-between; width: 100%; font-family: var(--mono); font-size: 12px; color: var(--muted); }
 
@@ -162,7 +140,7 @@ body.active .folder .flap { transform: perspective(200px) rotateX(-18deg); }
 
 .playlist-card { display: none; grid-template-columns: 96px 1fr; gap: 16px; align-items: center; animation: rise .5s ease; }
 .playlist-card.show { display: grid; }
-.playlist-card img { width: 96px; height: 96px; border-radius: 12px; object-fit: cover; box-shadow: 0 10px 30px rgba(0,0,0,.5), 0 0 25px rgba(139, 92, 255, .45); background: #1a1030; }
+.playlist-card img { width: 96px; height: 96px; border-radius: 12px; object-fit: cover; background: #1a1030; }
 .playlist-card .kicker { font-size: 11px; letter-spacing: .3em; color: var(--pink); text-transform: uppercase; }
 .playlist-card .name { font-size: 22px; font-weight: 900; margin: 4px 0 8px; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .pills { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -170,14 +148,14 @@ body.active .folder .flap { transform: perspective(200px) rotateX(-18deg); }
 .pill.hot { color: var(--lime); border-color: rgba(182, 255, 59, .4); }
 @keyframes rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 
-.actions { display: grid; grid-template-columns: 1.4fr 1fr auto; gap: 10px; }
+.actions { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto; gap: 10px; }
 .go {
   height: 58px; font-size: 17px; letter-spacing: .22em; border: 0; color: white;
   background: linear-gradient(90deg, var(--pink), var(--violet));
   box-shadow: var(--glow-pink);
 }
 .go:not(:disabled):hover { filter: brightness(1.1); }
-.pause-btn { height: 58px; }
+.pause-btn { height: 58px; padding: 0 12px; line-height: 1.2; }
 .pause-btn.armed { border-color: var(--lime); color: var(--lime); }
 .stop-btn { height: 58px; padding: 0 16px; display: flex; align-items: center; gap: 8px; }
 .stop-btn:not(:disabled) { color: #ffd1da; border-color: rgba(255,77,109,.55); background: rgba(255,77,109,.12); }
@@ -228,7 +206,7 @@ footer { display: flex; align-items: center; gap: 12px; font-size: 12px; color: 
 /* ---------- drawers & overlays ---------- */
 .drawer {
   position: fixed; top: 0; right: 0; bottom: 0; width: 380px; z-index: 30;
-  background: rgba(12, 5, 26, .92); border-left: 1px solid var(--panel-border); backdrop-filter: blur(20px);
+  background: #0e0620; border-left: 1px solid var(--panel-border);
   transform: translateX(100%); transition: transform .35s cubic-bezier(.3, .9, .3, 1); padding: 24px; display: flex; flex-direction: column; gap: 20px;
 }
 .drawer.open { transform: none; box-shadow: -30px 0 80px rgba(0,0,0,.6); }
@@ -241,7 +219,7 @@ footer { display: flex; align-items: center; gap: 12px; font-size: 12px; color: 
 .switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .toggle { width: 52px; height: 28px; border-radius: 99px; background: rgba(255,255,255,.1); position: relative; cursor: pointer; border: 1px solid var(--panel-border); transition: .25s; flex-shrink: 0; }
 .toggle::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: white; transition: .25s; }
-.toggle.on { background: var(--lime); box-shadow: 0 0 14px rgba(182,255,59,.6); }
+.toggle.on { background: var(--lime); }
 .toggle.on::after { left: 27px; background: #142000; }
 .folder-row { display: flex; gap: 8px; }
 .folder-path { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12px; padding: 10px 12px; border-radius: 10px; background: rgba(0,0,0,.35); border: 1px solid var(--panel-border); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -249,7 +227,7 @@ footer { display: flex; align-items: center; gap: 12px; font-size: 12px; color: 
 .scrim { position: fixed; inset: 0; z-index: 25; background: rgba(0,0,0,.4); opacity: 0; pointer-events: none; transition: .3s; }
 .scrim.show { opacity: 1; pointer-events: auto; }
 
-.overlay { position: fixed; inset: 0; z-index: 40; display: none; place-items: center; background: rgba(5, 2, 12, .75); backdrop-filter: blur(10px); }
+.overlay { position: fixed; inset: 0; z-index: 40; display: none; place-items: center; background: rgba(5, 2, 12, .82); }
 .overlay.show { display: grid; animation: rise .3s ease; }
 .modal { background: rgba(14, 7, 28, .97); width: min(460px, 90vw); padding: 30px; text-align: center; }
 .modal h2 { margin: 0 0 10px; font-size: 24px; }
@@ -260,7 +238,7 @@ footer { display: flex; align-items: center; gap: 12px; font-size: 12px; color: 
 .toast { padding: 11px 18px; border-radius: 12px; background: rgba(20, 10, 40, .92); border: 1px solid var(--panel-border); font-size: 13px; box-shadow: 0 10px 40px rgba(0,0,0,.5); animation: rise .3s ease; }
 .toast.good { border-color: rgba(182,255,59,.5); }
 .toast.bad { border-color: rgba(255,77,109,.6); }
-#confetti { position: fixed; inset: 0; z-index: 60; pointer-events: none; }
+
 /* live listen + skip */
 .live-row { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; flex-wrap: wrap; }
 .live-btn { height: 38px; padding: 0 14px; display: flex; align-items: center; gap: 8px; font-size: 12px; }
@@ -268,9 +246,8 @@ footer { display: flex; align-items: center; gap: 12px; font-size: 12px; color: 
 .live-btn.on { border-color: var(--lime); color: var(--lime); }
 .live-btn.on .eq { display: inline-flex; }
 .eq { display: none; gap: 2px; align-items: flex-end; height: 12px; }
-.eq i { width: 3px; background: currentColor; animation: eq .8s ease-in-out infinite; }
-.eq i:nth-child(2) { animation-delay: -.3s; } .eq i:nth-child(3) { animation-delay: -.55s; }
-@keyframes eq { 0%, 100% { height: 3px; } 50% { height: 12px; } }
+.eq i { width: 3px; background: currentColor; }
+.eq i:nth-child(1) { height: 6px; } .eq i:nth-child(2) { height: 12px; } .eq i:nth-child(3) { height: 9px; }
 .vol { width: 90px; accent-color: var(--lime); }
 .live-note { font-size: 11px; color: var(--muted); width: 100%; text-align: center; min-height: 14px; }
 
@@ -302,7 +279,7 @@ footer { display: flex; align-items: center; gap: 12px; font-size: 12px; color: 
   .tagline { display: none; }
   .spotify-logo { width: 68px; height: 68px; }
   .folder { width: 78px; height: 66px; }
-  .actions { grid-template-columns: 1fr 1fr auto; }
+  .actions { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
   .pause-btn { font-size: 11.5px; padding: 0 10px; }
   .stat-grid { grid-template-columns: 1fr 1fr; }
   .stat .v { font-size: 16px; }
@@ -324,7 +301,7 @@ footer { display: flex; align-items: center; gap: 12px; font-size: 12px; color: 
   .playlist-card img { width: 72px; height: 72px; }
   .playlist-card .name { font-size: 18px; margin: 2px 0 6px; }
   .go, .pause-btn { height: 48px; }
-  .stop-btn { height: 48px; width: 48px; }
+  .stop-btn { height: 48px; }
   .stats { padding: 14px; gap: 16px; }
   .ring { width: 104px; height: 104px; }
   .ring .pct { font-size: 24px; }
@@ -338,8 +315,6 @@ footer { display: flex; align-items: center; gap: 12px; font-size: 12px; color: 
 </style>
 </head>
 <body>
-<div class="aurora"><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div></div>
-<canvas id="confetti"></canvas>
 
 <div class="app">
   <header>
@@ -699,7 +674,7 @@ function setListening(on) {
   if (on && S.liveUrl) {
     audio.src = S.liveUrl + "?t=" + Date.now();
     audio.play().catch(() => {});
-    $("liveNote").textContent = "A few seconds behind the download";
+    $("liveNote").textContent = "About 20 seconds behind the download";
   } else {
     audio.pause(); audio.removeAttribute("src"); audio.load();
     $("liveNote").textContent = "";
@@ -707,7 +682,7 @@ function setListening(on) {
 }
 $("listenBtn").onclick = () => setListening(!S.listening);
 audio.addEventListener("waiting", () => { if (S.listening) $("liveNote").textContent = "Buffering…"; });
-audio.addEventListener("playing", () => { if (S.listening) $("liveNote").textContent = "A few seconds behind the download"; });
+audio.addEventListener("playing", () => { if (S.listening) $("liveNote").textContent = "About 20 seconds behind the download"; });
 $("skipBtn").onclick = async () => {
   if (!S.running || !S.trackStart) return;
   $("skipBtn").disabled = true;
@@ -835,7 +810,6 @@ function finish(kind) {
   if (kind === "done") {
     setState("Crate complete"); $("trackTitle").textContent = "All done!";
     $("trackArtist").textContent = "Import the folder or the .m3u8 into rekordbox";
-    burst(innerWidth / 2, innerHeight * .45, 90);
     toast("Playlist finished!", "good");
   } else if (kind === "paused") {
     setState("Paused"); $("trackTitle").textContent = "Paused between songs";
@@ -856,22 +830,26 @@ function setLogin(ok) {
 
 // ---------- beam animation ----------
 const beam = $("beam"), bctx = beam.getContext("2d");
-let beamAmp = 0.15, packets = [];
+let beamAmp = 0.15, packets = [], beamGrad = null;
 function nodeCenter(id) {
   const r = $(id).getBoundingClientRect(), s = $("scene").getBoundingClientRect();
   return { x: r.left - s.left + r.width / 2, y: r.top - s.top + r.height / 2, w: r.width };
 }
 function drawBeam(t) {
-  const w = beam.clientWidth, h = beam.clientHeight, dpr = devicePixelRatio || 1;
-  if (beam.width !== Math.round(w * dpr) || beam.height !== Math.round(h * dpr)) { beam.width = Math.round(w * dpr); beam.height = Math.round(h * dpr); }
+  const w = beam.clientWidth, h = beam.clientHeight, dpr = Math.min(devicePixelRatio || 1, 1.5);
+  if (beam.width !== Math.round(w * dpr) || beam.height !== Math.round(h * dpr)) { beam.width = Math.round(w * dpr); beam.height = Math.round(h * dpr); beamGrad = null; }
   bctx.setTransform(dpr, 0, 0, dpr, 0, 0); bctx.clearRect(0, 0, w, h);
   const active = document.body.classList.contains("active");
-  beamAmp += ((active ? 1 : 0.15) - beamAmp) * 0.04;
+  beamAmp += ((active ? 1 : 0.15) - beamAmp) * 0.1;
   const a = nodeCenter("srcNode"), b = nodeCenter("dstNode");
   const x0 = a.x + a.w / 2 + 6, x1 = b.x - b.w / 2 - 6, cy = (a.y + b.y) / 2, span = x1 - x0;
   if (span < 40) return;
-  const grad = bctx.createLinearGradient(x0, 0, x1, 0);
-  grad.addColorStop(0, "#1ed760"); grad.addColorStop(.55, "#8b5cff"); grad.addColorStop(1, "#ff2fb3");
+  if (!beamGrad || beamGrad.x0 !== x0 || beamGrad.x1 !== x1) {
+    const g = bctx.createLinearGradient(x0, 0, x1, 0);
+    g.addColorStop(0, "#1ed760"); g.addColorStop(.55, "#8b5cff"); g.addColorStop(1, "#ff2fb3");
+    beamGrad = { g, x0, x1 };
+  }
+  const grad = beamGrad.g;
   const speed = active ? 0.006 : 0.0015;
   const waves = [
     { amp: .28, k: 2.2, off: 0,   lw: 2.6, alpha: .95 },
@@ -888,7 +866,7 @@ function drawBeam(t) {
     bctx.strokeStyle = grad; bctx.globalAlpha = wv.alpha * (0.35 + 0.65 * beamAmp); bctx.lineWidth = wv.lw; bctx.stroke();
   }
   // little sound packets riding the main wave toward the folder
-  if (active && Math.random() < 0.08) packets.push({ u: 0, v: 0.004 + Math.random() * 0.003 });
+  if (active && Math.random() < 0.2) packets.push({ u: 0, v: 0.01 + Math.random() * 0.007 });
   packets = packets.filter(p => (p.u += p.v) < 1);
   for (const p of packets) {
     const env = Math.pow(Math.sin(Math.PI * p.u), 1.3);
@@ -916,27 +894,22 @@ function flyToFolder(src) {
 }
 function setBadge(n) { $("folderBadge").textContent = n; }
 
-// ---------- confetti ----------
-const cc = $("confetti"), cctx = cc.getContext("2d"); let confetti = [];
-function burst(x, y, n) {
-  const colors = ["#ff2fb3", "#19f0ff", "#8b5cff", "#b6ff3b", "#ffffff"];
-  for (let i = 0; i < n; i++) {
-    const a = Math.random() * Math.PI * 2, v = 4 + Math.random() * 9;
-    confetti.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 6, rot: Math.random() * 6, vr: (Math.random() - .5) * .4, life: 1, c: colors[i % colors.length], w: 6 + Math.random() * 6, h: 3 + Math.random() * 4 });
-  }
+// ---------- render loop ----------
+// The wave is the only animation: drawn on a timer at ~24 FPS while
+// downloading, a single still frame when idle, nothing while minimized.
+const ACTIVE_FPS = 24;
+let idleDrawn = false;
+function tick() {
+  if (document.hidden) return;
+  const active = document.body.classList.contains("active");
+  const settling = Math.abs(beamAmp - (active ? 1 : 0.15)) > 0.01 || packets.length;
+  if (!active && !settling && idleDrawn) return;
+  drawBeam(performance.now());
+  idleDrawn = !active && !settling;
 }
-function drawConfetti() {
-  if (cc.width !== innerWidth) { cc.width = innerWidth; cc.height = innerHeight; }
-  cctx.clearRect(0, 0, cc.width, cc.height);
-  confetti = confetti.filter(p => p.life > 0);
-  for (const p of confetti) {
-    p.vy += .32; p.vx *= .985; p.x += p.vx; p.y += p.vy; p.rot += p.vr; p.life -= .009;
-    cctx.save(); cctx.translate(p.x, p.y); cctx.rotate(p.rot); cctx.globalAlpha = Math.max(0, p.life);
-    cctx.fillStyle = p.c; cctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h); cctx.restore();
-  }
-}
-function frame(t) { drawBeam(t); drawConfetti(); requestAnimationFrame(frame); }
-requestAnimationFrame(frame);
+setInterval(tick, 1000 / ACTIVE_FPS);
+addEventListener("resize", () => { idleDrawn = false; });
+document.addEventListener("visibilitychange", () => { idleDrawn = false; });
 
 // ---------- boot ----------
 async function boot() {

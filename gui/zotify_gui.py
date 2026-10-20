@@ -214,7 +214,10 @@ def _ogg_header_span(path: Path) -> tuple[int, int] | None:
 
 
 class LiveAudio:
-    LEAD_SECONDS = 4  # start this far behind the download so playback has a buffer
+    # start this far behind the download: real-time mode downloads at the
+    # track's average bitrate, so busy passages of variable-bitrate Vorbis
+    # would otherwise catch up with the download and stutter
+    LEAD_SECONDS = 18
 
     def __init__(self):
         self.path: Path | None = None
@@ -264,11 +267,19 @@ class LiveAudio:
 
     def _stream(self, path: Path, span: tuple[int, int], out) -> None:
         header_start, header_end = span
+        lead = self.LEAD_SECONDS * self.rate
+        # early in a track, wait until a full lead's worth has downloaded
+        deadline = time.time() + self.LEAD_SECONDS + 5
+        while (self.path == path and time.time() < deadline
+               and path.is_file() and path.stat().st_size < header_end + lead):
+            time.sleep(0.25)
+        if self.path != path or not path.is_file():
+            return
         with open_shared(path) as f:
             f.seek(header_start)
             out.write(f.read(header_end - header_start))
             size = path.stat().st_size
-            target = max(header_end, size - self.LEAD_SECONDS * self.rate)
+            target = max(header_end, size - lead)
             f.seek(target)
             chunk = f.read(max(size - target, 0))
             # resume at a page boundary at or after the target
