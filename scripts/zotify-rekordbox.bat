@@ -19,6 +19,7 @@ zotify ^
   --lyrics-to-file False ^
   --md-disc-track-totals False ^
   --bulk-wait-time 5 ^
+  -ip True ^
   %*
 
 pause

@@ -21,11 +21,32 @@ from pathlib import Path
 
 WORKER_FLAG = "--zotify-worker"
 APP_NAME = "Zotify GUI"
-SETTINGS_PATH = Path(os.environ.get("APPDATA", Path.home())) / "ZotifyGUI" / "settings.json"
-ZOTIFY_CREDS = Path(os.environ.get("APPDATA", Path.home())) / "Zotify" / "credentials.json"
+def _app_dir() -> Path:
+    """Data folder kept next to the app (portable); %APPDATA% if that isn't writable."""
+    base = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
+    portable = base / "ZotifyGUI-data"
+    try:
+        portable.mkdir(exist_ok=True)
+        probe = portable / ".write-test"
+        probe.write_text("ok")
+        probe.unlink()
+        return portable
+    except OSError:
+        return Path(os.environ.get("APPDATA", Path.home())) / "ZotifyGUI"
+
+
+APP_DIR = _app_dir()
+SETTINGS_PATH = APP_DIR / "settings.json"
+# the app keeps its own Zotify config, login and download history next to
+# itself, separate from command-line Zotify (%APPDATA%\Zotify)
+ZOTIFY_DIR = APP_DIR / "zotify"
+ZOTIFY_CREDS = ZOTIFY_DIR / "credentials.json"
+ZOTIFY_HISTORY = ZOTIFY_DIR / ".song_archive"
+LOG_DIR = APP_DIR / "logs"
+CLI_ZOTIFY_DIR = Path(os.environ.get("APPDATA", Path.home())) / "Zotify"
 AUDIO_EXTS = {".aiff", ".flac", ".m4a", ".wav", ".mp3", ".ogg"}
 DEFAULT_SETTINGS = {
-    "root": str(Path.home() / "Music" / "Zotify"),
+    "root": str(Path.home() / "Downloads" / "Zotify"),
     "codec": "aiff",
     "real_time": True,
     "wait": 5,
@@ -62,6 +83,16 @@ def load_settings() -> dict:
 def save_settings(settings: dict) -> None:
     SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
     SETTINGS_PATH.write_text(json.dumps(settings, indent=2), encoding="utf-8")
+
+
+def prepare_zotify_dir() -> None:
+    """Create the app's Zotify folder; on first use, copy the login and download
+    history from command-line Zotify so there's no new login or re-downloading."""
+    ZOTIFY_DIR.mkdir(parents=True, exist_ok=True)
+    for name in ("credentials.json", ".song_archive"):
+        mine, cli = ZOTIFY_DIR / name, CLI_ZOTIFY_DIR / name
+        if not (mine.is_file() and mine.stat().st_size) and cli.is_file() and cli.stat().st_size:
+            shutil.copy2(cli, mine)
 
 
 def cover_thumbnail(path: Path, size: int = 200) -> str | None:
@@ -122,6 +153,9 @@ class Api:
     def _zotify_args(self, url: str) -> list[str]:
         s = self.settings
         args = [
+            "-c", str(ZOTIFY_DIR),
+            "--creds", str(ZOTIFY_DIR),
+            "--song-archive-location", str(ZOTIFY_DIR),
             "-q", "auto",
             "--codec", s["codec"],
             "-rp", s["root"],
@@ -131,6 +165,9 @@ class Api:
             "--lyrics-to-file", "False",
             "--md-disc-track-totals", "False",
             "--bulk-wait-time", str(s.get("wait", 5)),
+            # skip by the global history in %APPDATA%\Zotify, so tracks moved
+            # out of the download folder (e.g. into a DJ library) aren't re-downloaded
+            "-ip", "True",
         ]
         if s["real_time"]:
             args += ["-rt", "True"]
@@ -201,14 +238,28 @@ class Api:
             return {"ok": True, "url": url, "title": "", "image": None}
 
     def existing_tracks(self, folder_name: str) -> list[dict]:
+        """Tracks of this playlist already downloaded: files still in the folder,
+        plus ones listed in Zotify's history that have since been moved out."""
         folder = Path(self.settings["root"]) / folder_name
-        if not folder.is_dir():
-            return []
-        tracks = []
-        for p in sorted(folder.iterdir(), key=lambda p: p.stat().st_mtime):
-            if p.suffix.lower() in AUDIO_EXTS:
-                artist, title = split_track_name(p)
-                tracks.append({"path": str(p), "artist": artist, "title": title, "cover": cover_thumbnail(p)})
+        tracks, seen = [], set()
+        if folder.is_dir():
+            for p in sorted(folder.iterdir(), key=lambda p: p.stat().st_mtime):
+                if p.suffix.lower() in AUDIO_EXTS:
+                    artist, title = split_track_name(p)
+                    tracks.append({"path": str(p), "artist": artist, "title": title, "cover": cover_thumbnail(p)})
+                    seen.add(p.stem.lower())
+        try:
+            history = ZOTIFY_HISTORY.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            history = []
+        for line in history:
+            cols = line.split("\t")
+            if len(cols) < 5:
+                continue
+            p = Path(cols[4])
+            if p.parent.name.lower() == folder_name.lower() and p.stem.lower() not in seen:
+                seen.add(p.stem.lower())
+                tracks.append({"path": str(p), "artist": cols[2], "title": cols[3], "cover": None})
         return tracks
 
     def start(self, url: str) -> dict:
@@ -219,7 +270,9 @@ class Api:
             if not ffmpeg:
                 return {"ok": False, "error": "FFmpeg not found. Install it with: winget install Gyan.FFmpeg"}
             self.update_settings({"last_url": url})
+            prepare_zotify_dir()
             env = dict(os.environ)
+            env["ZOTIFY_GUI_LOG_DIR"] = str(LOG_DIR)
             env["PATH"] = str(Path(ffmpeg).parent) + os.pathsep + env.get("PATH", "")
             env["PYTHONIOENCODING"] = "utf-8"
             env["PYTHONUNBUFFERED"] = "1"

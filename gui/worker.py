@@ -6,6 +6,7 @@ Commands come in on stdin, one per line: "pause" (stop after the current
 track) and "resume" (cancel a pending pause).
 """
 import json
+import os
 import re
 import sys
 import threading
@@ -141,6 +142,25 @@ def _hook_after_config_load() -> None:
         _install_hooks()
 
     Config.load = classmethod(load)
+
+    # keep Zotify's log files out of the download folder, which other tools
+    # may be sweeping into a DJ library
+    log_dir = os.environ.get("ZOTIFY_GUI_LOG_DIR")
+    if log_dir:
+        import logging
+        from pathlib import Path
+        from zotify.config import LogHandler, Zotify
+
+        def start_logger(cls, launch: str):
+            logfile = "zotify_" + ("DEBUG_" if Zotify.CONFIG.debug() else "") + f"{launch}.log"
+            Path(log_dir).mkdir(parents=True, exist_ok=True)
+            cls.LOG_PATH = Path(log_dir) / logfile
+            logging.basicConfig(level=logging.DEBUG if Zotify.CONFIG.debug() else logging.CRITICAL,
+                                filemode="x", filename=cls.LOG_PATH)
+            cls.LOGGER = logging.getLogger("zotify.debug")
+            return cls.LOGGER
+
+        LogHandler.start_logger = classmethod(start_logger)
 
 
 def _ensure_std_streams() -> None:

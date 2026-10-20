@@ -160,3 +160,5 @@ Zotify\ Podcasts/
 
 # Testing
 debug.py
+# Zotify GUI portable data (settings, login, history, logs)
+ZotifyGUI-data/
