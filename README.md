@@ -386,6 +386,16 @@ zotify -rt True -q very_high --codec aiff --md-disc-track-totals False -e True -
 - Re-tag files you already have (no re-download) with `zotify -v --codec aiff`.
 - Keep the music folder out of OneDrive/Dropbox, as syncing can break rekordbox's file links.
 
+## Desktop App (Zotify GUI)
+
+A Windows desktop front end lives in [`gui/`](gui): paste a Spotify link, press Start, and watch
+tracks travel from Spotify into your crate with their cover art. It downloads in real time with your
+chosen format (AIFF by default), can **pause after the current song**, and resumes where it left off.
+
+- Run from source: `pip install . pywebview` then `python gui/zotify_gui.py`
+- Build a single `ZotifyGUI.exe`: `pip install . pywebview pyinstaller` then `gui\build_exe.bat` (output in `dist\`)
+- FFmpeg is not bundled; install it with `winget install Gyan.FFmpeg`
+
 ## Docker Usage
 
 ### Build a Docker Image from the Dockerfile
